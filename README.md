@@ -26,7 +26,20 @@
 >默认不同事务单元并发执行，同一事务单元内的不同sql也都是并发执行。
 
 ### 是否支持异构数据之间强一致性，如redis和mysql之间的数据同步如何保证
->```支持```同样是把set命令，以及DML语句一并形成事务单元发送给事务执行引擎。
+>```支持```同样是把set命令，以及DML语句一并形成事务单元发送给事务执行引擎。同时保证redis的set操作都调用事务执行引擎来操作，即可保证异构数据之间的数据一致性。如对getName方法加上DistributedTransaction注解。如果此时redis缓存被清空，则会执行excuteSql，出发checkpoint检查事务执行引擎是否存在事务操作，并发挥事务中的热数据。
+伪代码如下：
+```java
+@DistributedTransaction
+public String getName(String userId){
+  String my_name = redis.get(userId)==null;
+  if(my_name == null){
+    String name = excuteSql("select name from user where user_id=?",userId);
+    redis.set(userId,name);
+    return name;
+  }
+  return my_name;
+}
+```
 
 ### 如果因为不可抗力、或其他原因，导致部分数据库宕机，则事务引擎是否支持立即失败和容忍失败两种方案
 >`支持`默认立即返回失败。容忍方案为，依然容忍一直接受事务消息。并返回success，但是可能客户端查询操作会失败。毕竟查询是直接连接数据库，不走事务引擎。
@@ -35,6 +48,7 @@
 ①数据强一致性得到保证  
 ②使用方便，只需要一次注解@DistributedTransaction和配合spring完成AOP注册（或者更换为的datasouceProxy）即可。  
 ③并不是所有的表的所有字段都会同步分布式事务查询，所以只需要指定checkpoint的规则即可。
+④事务引擎内部的事务单元，几乎都是并发执行。
 
 >缺点  
 ①每一次方法执行前或者每一次的sql执行前，都需要经过checkpoint检查查询，即多一次事务引擎查询的性能消耗。性能相比较不使用此方案，性能损失20%~40%
