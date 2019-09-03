@@ -26,7 +26,7 @@
 >默认不同事务单元并发执行，同一事务单元内的不同sql也都是并发执行。
 
 ### 是否支持异构数据之间强一致性，如redis和mysql之间的数据同步如何保证
->```支持```同样是把set命令，以及DML语句一并形成事务单元发送给事务执行引擎。同时保证redis的set操作都调用事务执行引擎来操作，即可保证异构数据之间的数据一致性。如对getName方法加上DistributedTransaction注解。如果此时redis缓存被清空，则会执行excuteSql，出发checkpoint检查事务执行引擎是否存在事务操作，并发挥事务中的热数据。
+>```支持```同样是把set命令，以及DML语句一并形成事务单元发送给事务执行引擎。同时保证redis的set操作都调用事务执行引擎来操作，即可保证异构数据之间的数据一致性。如对getName方法加上DistributedTransaction注解。如果此时redis缓存被清空，则会执行excuteSql，触发checkpoint检查事务执行引擎是否存在事务操作，返回事务中的热数据。
 伪代码如下：
 ```java
 @DistributedTransaction
