@@ -9,6 +9,7 @@
 - 4、所有通过jdbc查询出来的返回结果，①如果无法容忍程序出现脏读，则都需要被数据预存储数据库中的数据覆盖掉。②能够容忍脏读，则无须关心
 - 5、所有发送给事务消息执行引擎中的原子性sql，都会并发执行，并执行成功，如果失败，则一直重试
       如：服务A也调用了服务B，他们一共产生的许多sql语句，如update、delete、insert等，会以创建全局事务id的方式发送到事务消息执行引擎，直到服务A方法执行完并发起commit操作后，事务引擎开始并发执行每条sql语句
+- 6、发送的checkpoint查询和插入事务消息是同一个序列操作，不支持并发。
 ### 实现方案
 >AOP拦截待执行的sql和参数信息或是实现jdbc底层接口，编写分布式事务注解@DistributedTransaction。注解加在service层的某个方法上，跟@Transaction类似。。AOP在检测到DistributedTransaction注解时，创建事务id（如果没加DistributedTransaction，则没必要创建全局事务id，本地执行jdbc操作即可），将```原子性sql```发送到事务引擎中间件的全局事务id中。
 
