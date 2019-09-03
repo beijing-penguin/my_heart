@@ -13,9 +13,9 @@
 >AOP拦截待执行的sql和参数信息或是实现jdbc底层接口，编写分布式事务注解@DistributedTransaction。注解加在service层的某个方法上，跟@Transaction类似。。AOP在检测到DistributedTransaction注解时，创建事务id（如果没加DistributedTransaction，则没必要创建全局事务id，本地执行jdbc操作即可），将```原子性sql```发送到事务引擎中间件的全局事务id中。
 
 ### 如果客户端已提交分布式事务，但事务执行引擎还在异步执行中，此时执行select查询时，是否能查到最新数据
->可以。
+>是  
 1、但是底层会自动根据主键关系完成一次事务引擎执行任务检查。如果查询的select包含有事务引擎内的主键和包含返回的字段时，则必须等待事务引擎执行完毕之后，才能执行jdbc查询。  
-2、如果编程时都已经知道本次select查询的字段和主键跟分布式事务引擎无关，则可以加@UncheckPoint注解，来取消部分接口的检查操作
+2、如果编程时都已经知道本次select查询的字段和主键跟分布式事务引擎无关，则可以加@UncheckPoint注解，来取消部分接口方法的检查操作
 3、如果命中的事务中，只有update操作，那么可以在事务引擎中加入新数据缓存的机制来使得①中的阻塞变为立即返回新数据
 
 ### 分布式事务执行引擎正在执行时，客户端程序是否能直接jdbc执行DML（update，insert，delete）语句
@@ -25,40 +25,8 @@
 ### 事务引擎中的不相干事务单元和内部sql是否支持并发执行，以加速执行。
 >默认不同事务单元并发执行，同一事务单元内的不同sql也都是并发执行。
 
-### 是否支持同步和异步、以及部分同步执行，部分异步执行？（可以）
->分布式事务中，sql发送给事务执行引擎之后，客户端可以配置决定是否需要等待事务执行成功才返回有效信息，还是允许本次操作异步执行。。。在DistributedTransaction注解中加上同步标识，如```@DistributedTransaction(SYNC=true)```，那么本次请求则需要等待事务引擎执行所有的sql完毕之后，才可返回success指令。否则一直阻塞等待消息，直到超时（SYNC需要超时时间）。
-
-### 是否可并发
->分布式事务中，需要涉及到不同事务单元是否可并发执行，以及同一事务单元中的不同sql是否可并发执行？答案是```可以的```，配置DistributedTransaction注解中的几个参数，来控制sql执行可并发，以及事务单元可并发。默认都是可以并发执行。
-
-### 是否支持分布式的事务隔离级别
->在单机事务中，以mysql默认的REPEATABLE-READ可重复读为例，当事务A真正的、提交之前，其他任何查询都只能查询到老的数据，但是在分布式事务中，这将变得不那么简单。首先分布式事务引擎中间件中的提交是tcc机制，即数据库A的数据已经提交，但是很可能数据库B上面的sql还正在提交当中，这时候，有人想数据库A中的数据，则是否应该保证，读到的任然老数据呢？答案是```可以的```。目前是方案是在读取数据库A表的时候，哪怕数据库A已经提交，但是会提前缓存数据库A之前的数据，则任何对数据库A的查询操作，都会被之前缓存的数据给覆盖。即返回的永远的是提交前的数据。需要事务执行引擎提前缓存提交前的数据
-
-### 在开启事务隔离级别的情况下，会有那些问题（默认不开启事务隔离级别）
-- 1、性能会非常差，几乎所有的sql语句都会交给代理去执行，还要预先保存老数据
-- 2、好处就是，可以避免脏读，以及强一致性保证
-
 ### 是否支持异构数据之间强一致性，如redis和mysql之间的数据同步如何保证
->```支持```同样是把set命令，以及服务端的update语句一并形成事务单元发送给事务执行引擎。如果是redis做的缓存系统，但是需要注意一下命令的执行顺序，避免redis的脏读。。即数据库update优先执行，redis命令后执行即可
+>```支持```同样是把set命令，以及DML语句一并形成事务单元发送给事务执行引擎。
 
-### 本思路任然需要支持分布式锁来保证事务的同步机制
-### 来看下常见转账业务
-假设张三userId=1和李四userId=2在不同的数据库。张三需要转1000块给李四
-业务编码伪代码，一个转账接口
-```java
-@DistributedTransaction //分布式锁自定义的注解类
-@加上userId=1的分布式锁注解 //同步改方法的请求，用分布式锁保证此方法不会出现并发问题
-public void transfer(){
-  int old_money = excute("select old_money from account1 where userId=1");
-  int new_money = old_money-1000;
-  if(new_money>0){
-    update account set money=new_money where userId=1
-  }
-  //转账给李四
-  //查询李四的钱
-  int ls_old_money = accountService.queryLiSi();
-  int ls_new_money = ls_old_money+1000;
-  accountService.updateLisiMoney(userId=2,money=ls_new_money);
-}
-```
-事务单元的执行流程是，因为加了SYNC=true，所以程序将等待上一次的transfer请求完成后，才会开始执行transfer的第一行代码，最终构造两条update account1 set money=new_money where userId=1和update account2 set money=new_money where userId=2原子性命令交给proxy去执行。
+###如果因为不可抗力、或其他原因，导致部分数据库宕机，则事务引擎是否支持立即失败和容忍失败两种方案
+>`支持`默认立即返回失败
