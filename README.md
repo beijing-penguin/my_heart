@@ -1,34 +1,34 @@
-# �����ķֲ�ʽ��������������
-# ǰ��
->��ƪ���ֱ��źܶ࣬�漰���úܶ༼�������������в�ϰ���֪ʶ����mq��Ϣ���С��ֲ�ʽ��������cap��������뼶��zookeeper������������ƪҲ����cap����������Ľ��͡����԰��￪Դseata�ֲ�ʽ���������Աȣ��������з������������񷽰������ͣ��õķֲ�ʽϵͳӦ���ǿ��첽�ļܹ���ϵ������ƪּ�ڲ����Լ��������ķֲ�ʽ�������������ۣ������漰��һЩ�Դ������ʣ���```ԭ����sql```��```������Ϣִ���м��```��```����ִ�е�Ԫ```��```DataSourceProxy����Դ����```�������������⣬�����ʿ��Է����ʼ���429544557@qq.com  ����΢����ϵdc429544557��������github��issues������ʡ�����ת����ע��-����Ϊ������-�������
+# 真正的分布式事务解决方案概论
+# 前言
+>本篇文字编排很多，涉及到得很多技术设计理念，请自行补习相关知识（如mq消息队列、分布式、并发、cap、事务隔离级别、zookeeper等设计理念）。本篇也不对cap定律做过多的解释、不对阿里开源seata分布式事务框架做对比，不对折中方案的柔性事务方案做解释（好的分布式系统应当是可异步的架构体系）。本篇旨在阐述自己的真正的分布式事务解决方案理论，文中涉及的一些自创的名词（如```原子性sql```、```事务消息执行中间件```、```事务执行单元```、```DataSourceProxy数据源代理```）或者其他问题，有疑问可以发我邮件：429544557@qq.com  或者微信联系dc429544557、或者在github的issues板块提问。。。转载请注明-作者为：北京-艾布企鹅
 
-### �ܹ����������衣��������Ϣִ���м�����ֲ�ʽ�����е��ύ����ɣ������ڻع�����
-- 1����֤�ֲ�ʽ�������ύ������sql����```ԭ����sql```��ֻ�ܸ����������������ܱ�֤sqlһ����ִ�гɹ���
-- 2����ԭ����sqlͨ�����緢�͸�������Ϣִ���м��ȥ��������
-- 3��```������Ϣִ���м��/����```����������Ϣִ�����棬������Ԥ�洢���ݿ� ���������
-- 4������ͨ��jdbc��ѯ�����ķ��ؽ����������޷����̳���������������Ҫ������Ԥ�洢���ݿ��е����ݸ��ǵ������ܹ�������������������
-- 5�����з��͸�������Ϣִ�������е�ԭ����sql�����Ტ��ִ�У���ִ�гɹ������ʧ�ܣ���һֱ����
-      �磺����AҲ�����˷���B������һ������������sql��䣬��update��delete��insert�ȣ����Դ���ȫ������id�ķ�ʽ���͵�������Ϣִ�����棬ֱ������A����ִ���겢����commit�������������濪ʼ����ִ��ÿ��sql���
-- 6�����͵�checkpoint��ѯ�Ͳ���������Ϣ��ͬһ�����в�������֧�ֲ�����
-### ʵ�ַ���
->AOP���ش�ִ�е�sql�Ͳ�����Ϣ����ʵ��jdbc�ײ�ӿڣ���д�ֲ�ʽ����ע��@DistributedTransaction��ע�����service���ĳ�������ϣ���@Transaction���ơ���AOP�ڼ�⵽DistributedTransactionע��ʱ����������id�����û��DistributedTransaction����û��Ҫ����ȫ������id������ִ��jdbc�������ɣ�����```ԭ����sql```���͵����������м����ȫ������id�С�
+### 架构方案跟步骤。。事务消息执行中间件、分布式事务中一旦发起提交即完成，不存在回滚操作。
+- 1、保证分布式事务中提交的所有sql都是```原子性sql```（只能根据主键操作，并能保证sql一定能执行成功）
+- 2、将原子性sql通过网络发送给事务消息执行中间件去保存下来
+- 3、```事务消息执行中间件/引擎```包括事务消息执行引擎，和数据预存储数据库 两部分组成
+- 4、所有通过jdbc查询出来的返回结果，①如果无法容忍程序出现脏读，则都需要被数据预存储数据库中的数据覆盖掉。②能够容忍脏读，则无须关心
+- 5、所有发送给事务消息执行引擎中的原子性sql，都会并发执行，并执行成功，如果失败，则一直重试
+      如：服务A也调用了服务B，他们一共产生的许多sql语句，如update、delete、insert等，会以创建全局事务id的方式发送到事务消息执行引擎，直到服务A方法执行完并发起commit操作后，事务引擎开始并发执行每条sql语句
+- 6、发送的checkpoint查询和插入事务消息是同一个序列操作，不支持并发。
+### 实现方案
+>AOP拦截待执行的sql和参数信息或是实现jdbc底层接口，编写分布式事务注解@DistributedTransaction。注解加在service层的某个方法上，跟@Transaction类似。。AOP在检测到DistributedTransaction注解时，创建事务id（如果没加DistributedTransaction，则没必要创建全局事务id，本地执行jdbc操作即可），将```原子性sql```发送到事务引擎中间件的全局事务id中。
 
-### ����ͻ������ύ�ֲ�ʽ���񣬵�����ִ�����滹���첽ִ���У���ʱִ��select��ѯʱ���Ƿ��ܲ鵽��������
->��  
-1�����ǵײ���Զ�����������ϵ���һ����������ִ�������顣�����ѯ��select���������������ڵ������Ͱ������ص��ֶ�ʱ�������ȴ���������ִ�����֮�󣬲���ִ��jdbc��ѯ��  
-2��������ʱ���Ѿ�֪������select��ѯ���ֶκ��������ֲ�ʽ���������޹أ�����Լ�@UncheckPointע�⣬��ȡ�����ֽӿڷ����ļ�����
-3��������е������У�ֻ��update��������ô���������������м��������ݻ���Ļ�����ʹ�â��е�������Ϊ��������������
+### 如果客户端已提交分布式事务，但事务执行引擎还在异步执行中，此时执行select查询时，是否能查到最新数据
+>是  
+1、但是底层会自动根据主键关系完成一次事务引擎执行任务检查。如果查询的select包含有事务引擎内的主键和包含返回的字段时，则必须等待事务引擎执行完毕之后，才能执行jdbc查询。  
+2、如果编程时都已经知道本次select查询的字段和主键跟分布式事务引擎无关，则可以加@UncheckPoint注解，来取消部分接口方法的检查操作
+3、如果命中的事务中，只有update操作，那么可以在事务引擎中加入新数据缓存的机制来使得①中的阻塞变为立即返回新数据
 
-### �ֲ�ʽ����ִ����������ִ��ʱ���ͻ��˳����Ƿ���ֱ��jdbcִ��DML��update��insert��delete�����
+### 分布式事务执行引擎正在执行时，客户端程序是否能直接jdbc执行DML（update，insert，delete）语句
 
->����update��delete�����ԡ�insert���ԡ�update��delete������������������е������Ͱ������ֶ���һ���б���������������Ұ������µ��ֶ�ʱ���������������ȴ���������ִ�гɹ����ܼ���
+>部分update和delete不可以。insert可以。update和delete会根据事务引擎中命中的主键和包含的字段做一次判别，如果是命中主键且包含更新的字段时，则不允许操作，等待事务引擎执行成功才能继续
 
-### ���������еĲ��������Ԫ���ڲ�sql�Ƿ�֧�ֲ���ִ�У��Լ���ִ�С�
->Ĭ�ϲ�ͬ����Ԫ����ִ�У�ͬһ����Ԫ�ڵĲ�ͬsqlҲ���ǲ���ִ�С�
+### 事务引擎中的不相干事务单元和内部sql是否支持并发执行，以加速执行。
+>默认不同事务单元并发执行，同一事务单元内的不同sql也都是并发执行。
 
-### �Ƿ�֧���칹����֮��ǿһ���ԣ���redis��mysql֮�������ͬ����α�֤
->```֧��```ͬ���ǰ�set����Լ�DML���һ���γ�����Ԫ���͸�����ִ�����档ͬʱ��֤redis��set��������������ִ�����������������ɱ�֤�칹����֮�������һ���ԡ����getName��������DistributedTransactionע�⡣�����ʱredis���汻��գ����ִ��excuteSql������checkpoint�������ִ�������Ƿ����������������������е������ݡ�
-α�������£�
+### 是否支持异构数据之间强一致性，如redis和mysql之间的数据同步如何保证
+>```支持```同样是把set命令，以及DML语句一并形成事务单元发送给事务执行引擎。同时保证redis的set操作都调用事务执行引擎来操作，即可保证异构数据之间的数据一致性。如对getName方法加上DistributedTransaction注解。如果此时redis缓存被清空，则会执行excuteSql，触发checkpoint检查事务执行引擎是否存在事务操作，返回事务中的热数据。
+伪代码如下：
 ```java
 @DistributedTransaction
 public String getName(String userId){
@@ -42,14 +42,14 @@ public String getName(String userId){
 }
 ```
 
-### �����Ϊ���ɿ�����������ԭ�򣬵��²������ݿ�崻��������������Ƿ�֧������ʧ�ܺ�����ʧ�����ַ���
->`֧��`Ĭ����������ʧ�ܡ����̷���Ϊ����Ȼ����һֱ����������Ϣ��������success�����ǿ��ܿͻ��˲�ѯ������ʧ�ܡ��Ͼ���ѯ��ֱ���������ݿ⣬�����������档
-### ��������ȱ��
->�ŵ�  
-������ǿһ���Եõ���֤  
-��ʹ�÷��㣬ֻ��Ҫһ��ע��@DistributedTransaction�����spring���AOPע�ᣨ���߸���Ϊ��datasouceProxy�����ɡ�  
-�۲��������еı��������ֶζ���ͬ���ֲ�ʽ�����ѯ������ֻ��Ҫָ��checkpoint�Ĺ��򼴿ɡ�
-�����������ڲ�������Ԫ���������ǲ���ִ�С�
+### 如果因为不可抗力、或其他原因，导致部分数据库宕机，则事务引擎是否支持立即失败和容忍失败两种方案
+>`支持`默认立即返回失败。容忍方案为，依然容忍一直接受事务消息。并返回success，但是可能客户端查询操作会失败。毕竟查询是直接连接数据库，不走事务引擎。
+### 本方案优缺点
+>优点  
+①数据强一致性得到保证  
+②使用方便，只需要一次注解@DistributedTransaction和配合spring完成AOP注册（或者更换为的datasouceProxy）即可。  
+③并不是所有的表的所有字段都会同步分布式事务查询，所以只需要指定checkpoint的规则即可。
+④事务引擎内部的事务单元，几乎都是并发执行。
 
->ȱ��  
-��ÿһ�η���ִ��ǰ����ÿһ�ε�sqlִ��ǰ������Ҫ����checkpoint����ѯ����һ�����������ѯ���������ģ��������Բ���������������Ƚϲ�ʹ�ô˷�����������ʧ20%~40%
+>缺点  
+①每一次方法执行前或者每一次的sql执行前，都需要经过checkpoint检查查询，多一次事务引擎查询的性能消耗，和事务性操作阻塞，性能相比较不使用此方案，性能损失20%~40%
